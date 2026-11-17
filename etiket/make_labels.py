@@ -18,7 +18,7 @@ from reportlab.lib.colors import CMYKColor
 from reportlab.lib.utils import ImageReader
 
 from die import page_size_pt, UU
-from dieonly import draw_die, die_ops
+from dieonly import die_ops, CUT, CREASE
 
 SCR = '/tmp/claude-0/-home-user-New/3e8f1084-1d86-5cb6-a53a-b4330781fa06/scratchpad/'
 UP = '/root/.claude/uploads/3e8f1084-1d86-5cb6-a53a-b4330781fa06/'
@@ -256,8 +256,8 @@ def sun_art(c, color, lw=0.26):
 # ÖN YÜZ                                                               #
 # ------------------------------------------------------------------ #
 def front_page(c, masks, base_kraft):
+    c._code.append('/OC /Baski BDC')
     base = base_kraft.copy()
-    draw_frame(base, masks, FOREST)
     logo = Image.open(UP + '0f73b355-image.png').convert('RGBA')
     sq = Image.open('/home/user/New/app/www/img/sincap.png').convert('RGBA')
     # OGM logosu (beyaz daire içinde)
@@ -275,7 +275,7 @@ def front_page(c, masks, base_kraft):
     c.roundRect(CX - bw / 2, by, bw, bh, bh / 2, stroke=0, fill=1)
     draw_text(c, 'OGM ORMANI', CX, by + 4.2, 8.8, WHITE, 800, track=0.25)
     draw_text(c, 'Her kalem bir fidan', CX, 123.6, 6.2, FOREST, 700)
-    sun_art(c, FOREST)
+    c._code.append('EMC')
     return sh
 
 
@@ -286,8 +286,8 @@ SPECIES = {'KARACAM': 'Karaçam', 'SARICAM': 'Sarıçam', 'KIZILCAM': 'Kızılç
 
 
 def back_page(c, masks, base_kraft, pen_id, sp):
+    c._code.append('/OC /Baski BDC')
     base = base_kraft.copy()
-    draw_frame(base, masks, FOREST)
     tx = Image.open('/home/user/New/app/www/img/tohumix-logo.png').convert('RGBA')
     tw = 64.0
     paste(base, tx, CX - tw / 2 - 1, 167.5, tw)
@@ -308,11 +308,45 @@ def back_page(c, masks, base_kraft, pen_id, sp):
     draw_text(c, label, CX, 78.0, 6.4, FOREST, 700)
     draw_text(c, 'Kalemin bitince dik,', CX, 65.5, 5.3, FOREST, 600)
     draw_text(c, "QR'ı okut, ormana katıl!", CX, 58.8, 5.3, FOREST, 800)
+    c._code.append('EMC')
     # üst kulak: "OGM ORMANI" küçük yazı yok (delik alanı); alt kulak güneş
-    sun_art(c, FOREST)
 
 
 TRIM = None
+
+
+def draw_die_layered(c):
+    """Bıçak izini 'Kesim' ve 'Kırım' katmanlarına ayırarak çizer (spot renk, overprint)."""
+    ops = die_ops()
+    blocks = {'cut': [], 'crease': []}
+    cur = None
+    i = 0
+    while i < len(ops):
+        l = ops[i]
+        if l.startswith('/CS0'):
+            cur = 'cut'
+        elif l.startswith('/CS1'):
+            cur = 'crease'
+        elif l.startswith('q 1 0 0 1') and l.endswith('cm'):
+            j = i
+            while ops[j] != 'Q':
+                j += 1
+            blocks[cur].append(ops[i:j + 1])
+            i = j
+        i += 1
+    for name, key, color, dash in (('Kesim', 'cut', CUT, '[] 0 d'), ('Kirim', 'crease', CREASE, '[0.7 0.2 0.2 0.2] 0 d')):
+        c._code.append(f'/OC /{name} BDC')
+        c.saveState()
+        c.setStrokeOverprint(True)
+        c.setOverprintMask(True)
+        c.setStrokeColor(color)
+        c._code.append(f'{UU:g} 0 0 {UU:g} 0 0 cm')
+        c._code.append(f'0.1 w 1 j {dash}')
+        for b in blocks[key]:
+            c._code.extend(b)
+        c.restoreState()
+        c._code.append('EMC')
+    return {k: len(v) for k, v in blocks.items()}
 
 
 def page_boxes(c):
@@ -347,7 +381,7 @@ def build():
     c = new('out/OGM-Ormani-Etiket-ON-YUZ.pdf', 'OGM Ormanı – Etiket ön yüz')
     page_boxes(c)
     front_page(c, masks, kraft)
-    draw_die(c)
+    draw_die_layered(c)
     c.showPage()
     c.save()
 
@@ -356,7 +390,7 @@ def build():
     for pid, sp in pens:
         page_boxes(c)
         back_page(c, masks, kraft, pid, sp)
-        draw_die(c)
+        draw_die_layered(c)
         c.showPage()
     c.save()
 
@@ -365,11 +399,11 @@ def build():
     for pid, sp in pens:
         page_boxes(c)
         front_page(c, masks, kraft)
-        draw_die(c)
+        draw_die_layered(c)
         c.showPage()
         page_boxes(c)
         back_page(c, masks, kraft, pid, sp)
-        draw_die(c)
+        draw_die_layered(c)
         c.showPage()
     c.save()
     print('ok')
@@ -400,6 +434,19 @@ def strip_unused_fonts(path):
         st.set_data(data)
         st = st.flate_encode()
         p[NameObject('/Contents')] = w._add_object(st)
+    from pypdf.generic import DictionaryObject, ArrayObject, TextStringObject
+    ocgs = {}
+    for key, label in (('/Baski', 'Baskı'), ('/Kesim', 'Kesim'), ('/Kirim', 'Kırım')):
+        ocgs[key] = w._add_object(DictionaryObject({NameObject('/Type'): NameObject('/OCG'), NameObject('/Name'): TextStringObject(label)}))
+    for p in w.pages:
+        res = p['/Resources']
+        props = DictionaryObject({NameObject(k): v for k, v in ocgs.items()})
+        res[NameObject('/Properties')] = props
+    arr = ArrayObject(list(ocgs.values()))
+    w._root_object[NameObject('/OCProperties')] = DictionaryObject({
+        NameObject('/OCGs'): arr,
+        NameObject('/D'): DictionaryObject({NameObject('/Order'): arr, NameObject('/ON'): arr, NameObject('/Name'): TextStringObject('Varsayılan')}),
+    })
     w.compress_identical_objects()
     with open(path, 'wb') as f:
         w.write(f)
