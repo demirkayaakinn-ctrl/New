@@ -1,0 +1,9 @@
+{
+  "appId": "com.tohumix.ogmormani",
+  "appName": "OGM Ormanı",
+  "webDir": "www",
+  "android": { "backgroundColor": "#1c4d29" },
+  "plugins": {
+    "StatusBar": { "backgroundColor": "#1c4d29", "style": "DARK", "overlaysWebView": false }
+  }
+}
