@@ -392,13 +392,16 @@ SCREENS.home = () => {
 /* ------------------------------------------------------------------ */
 async function openCamera(video) {
   if (!navigator.mediaDevices?.getUserMedia) throw new Error('no-media');
+  // iOS Safari: playsinline/muted/autoplay, akış bağlanmadan önce ayarlanmalı
+  video.setAttribute('playsinline', '');
+  video.setAttribute('webkit-playsinline', '');
+  video.setAttribute('autoplay', '');
+  video.muted = true;
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
     video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 960 } },
   });
   video.srcObject = stream;
-  video.setAttribute('playsinline', '');
-  video.muted = true;
   await video.play().catch(() => {});
   return stream;
 }
